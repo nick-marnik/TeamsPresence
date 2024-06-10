@@ -76,7 +76,7 @@ namespace TeamsPresence
 
             TeamsLogService.StatusChanged += Service_StatusChanged;
             TeamsLogService.ActivityChanged += Service_ActivityChanged;
-
+            TeamsLogService.NotificationChanged += Service_NotificationChanged;
             CameraDetectionService.StatusChanged += Camera_StatusChanged;
 
             Thread presenceDetectionThread = new Thread(
@@ -109,13 +109,15 @@ namespace TeamsPresence
                 HomeAssistantToken = "eyJ0eXAiOiJKV1...",
                 AppDataRoamingPath = "",
                 StatusEntity = "sensor.teams_presence_status",
-                StatusEntityFriendlyName = "Microsoft Teams status",
+                StatusEntityFriendlyName = "Microsoft Teams Status",
                 ActivityEntity = "sensor.teams_presence_activity",
-                ActivityEntityFriendlyName = "Microsoft Teams activity",
+                ActivityEntityFriendlyName = "Microsoft Teams Activity",
                 CameraAppEntity = "sensor.teams_presence_camera_app",
-                CameraAppEntityFriendlyName = "Microsoft Teams camera app",
+                CameraAppEntityFriendlyName = "Microsoft Teams Camera App",
                 CameraStatusEntity = "sensor.teams_presence_camera_status",
-                CameraStatusEntityFriendlyName = "Microsoft Teams camera status",
+                CameraStatusEntityFriendlyName = "Microsoft Teams Camera Status",
+                NotificationEntity = "sensor.teams_notification_count",
+                NotificationEntityFriendlyName = "Microsoft Teams Notification Count",
                 CameraStatusPollingRate = 1000,
                 FriendlyStatusNames = new Dictionary<TeamsStatus, string>()
                     {
@@ -222,6 +224,17 @@ namespace TeamsPresence
                 Config.ActivityIcons[activity]);
 
             Console.WriteLine($"Updated activity to {Config.FriendlyActivityNames[activity]} ({activity})");
+        }
+
+        private static void Service_NotificationChanged(object sender, string notificationCount)
+        {
+            HomeAssistantService.UpdateEntity(
+                Config.NotificationEntity,
+                Config.NotificationEntityFriendlyName,
+                notificationCount.ToString(),
+                "mdi:bell-alert");
+
+            Console.WriteLine($"Updated notification count to {notificationCount}");
         }
 
         private static void Camera_StatusChanged(object sender, CameraStatusChangedEventArgs args)

@@ -21,6 +21,10 @@ namespace TeamsPresence
         public string CameraAppEntity { get; set; }
         public string CameraAppEntityFriendlyName { get; set; }
 
+        public string NotificationEntity { get; set; }
+
+        public string NotificationEntityFriendlyName { get; set; }
+
         public int CameraStatusPollingRate { get; set; }
 
         public Dictionary<TeamsStatus, string> FriendlyStatusNames { get; set; }

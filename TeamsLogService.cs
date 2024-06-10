@@ -1,12 +1,8 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
-using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
-using System.Threading.Tasks;
 
 namespace TeamsPresence
 {
@@ -14,9 +10,11 @@ namespace TeamsPresence
     {
         public event EventHandler<TeamsStatus> StatusChanged;
         public event EventHandler<TeamsActivity> ActivityChanged;
+        public event EventHandler<string> NotificationChanged;
 
         private TeamsStatus CurrentStatus;
         private TeamsActivity CurrentActivity;
+        private string CurrentNotificationCount;
         private bool Started = false;
 
         private Stopwatch Stopwatch { get; set; }
@@ -24,7 +22,7 @@ namespace TeamsPresence
 
         public TeamsLogService()
         {
-            LogPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Microsoft", "Teams");
+            LogPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Packages", "MSTeams_8wekyb3d8bbwe", "LocalCache", "Microsoft", "MSTeams", "Logs");
             Stopwatch = new Stopwatch();
         }
 
@@ -39,15 +37,36 @@ namespace TeamsPresence
             Stopwatch.Start();
 
             var lockMe = new object();
+
+            FileInfo newestLogFile = null;
+
+            DirectoryInfo logFolder = new DirectoryInfo(LogPath);
+            if (logFolder.Exists) // else: Invalid folder!
+            {
+                FileInfo[] logFiles = logFolder.GetFiles("MSTeams_*.log");
+
+                foreach (FileInfo file in logFiles)
+                {
+                    if (((newestLogFile != null) && (newestLogFile.LastWriteTimeUtc < file.LastWriteTimeUtc)) || newestLogFile == null)
+                    {
+                        newestLogFile = file;
+                    }
+                }
+            }
+            else
+            {
+                throw new Exception($"Log folder {logFolder} does not exist!");
+            }
+
             using (var latch = new ManualResetEvent(true))
-            using (var fs = new FileStream(Path.Combine(LogPath, "logs.txt"), FileMode.OpenOrCreate, FileAccess.Read, FileShare.ReadWrite))
+            using (var fs = new FileStream(newestLogFile.FullName, FileMode.OpenOrCreate, FileAccess.Read, FileShare.ReadWrite))
             using (var fsw = new FileSystemWatcher(LogPath))
             {
                 fsw.Changed += (s, e) =>
                 {
                     lock (lockMe)
                     {
-                        if (e.FullPath != Path.Combine(LogPath, "logs.txt")) return;
+                        if (e.FullPath != newestLogFile.FullName) return;
                         latch.Set();
                     }
                 };
@@ -69,6 +88,7 @@ namespace TeamsPresence
                                 Started = true;
                                 StatusChanged?.Invoke(this, CurrentStatus);
                                 ActivityChanged?.Invoke(this, CurrentActivity);
+                                NotificationChanged?.Invoke(this, CurrentNotificationCount);
                             }
                         }
 
@@ -89,13 +109,17 @@ namespace TeamsPresence
 
         private void LogFileChanged(string line, bool throttled)
         {
-            string statusPattern = @"StatusIndicatorStateService: Added (\w+)";
-            string activityPattern = @"name: desktop_call_state_change_send, isOngoing: (\w+)";
+            string statusPattern = @"availability: (\w+), unread notification count: (\d+)";
+            string activityPatternStart = @".*HfpVoipCallCoordinatorImpl: NotifyCallActive.*";
+            //@".*WebViewWindowWin:.*tags=Call.*Window previously was visible = false";
+            string activityPatternEnd = @".*HfpVoipCallCoordinatorImpl: HfpVoipCallCoordinatorImpl:reportCallEnded.*";
+            // @".*WebViewWindowWin:.*tags=Call.*SetTaskbarIconOverlay overlay description";
+            //@".*WebViewWindow: WindowCloseActionDestroy, letting the window destroy";
 
             RegexOptions options = RegexOptions.Multiline;
 
-            TeamsStatus status = TeamsStatus.Unknown;
-            TeamsActivity activity = TeamsActivity.Unknown;
+            TeamsStatus status = CurrentStatus;
+            TeamsActivity activity = CurrentActivity;
 
             foreach (Match m in Regex.Matches(line, statusPattern, options))
             {
@@ -108,15 +132,29 @@ namespace TeamsPresence
                     if (!throttled)
                         StatusChanged?.Invoke(this, status);
                 }
-            }
-
-            foreach (Match m in Regex.Matches(line, activityPattern, options))
-            {
-                activity = m.Groups[1].Value == "true" ? TeamsActivity.InACall : TeamsActivity.NotInACall;
-
-                CurrentActivity = activity;
+                var notificationCount = m.Groups[2].Value;
+                CurrentNotificationCount = notificationCount;
 
                 if (!throttled)
+                {
+                    NotificationChanged?.Invoke(this, notificationCount);
+                }
+            }
+
+            foreach (Match m in Regex.Matches(line, activityPatternStart, options))
+            {
+                activity = TeamsActivity.InACall;
+
+                CurrentActivity = activity;
+            }
+            foreach (Match m in Regex.Matches(line, activityPatternEnd, options))
+            {
+                activity = TeamsActivity.NotInACall;
+
+                CurrentActivity = activity;
+            }
+
+            if (!throttled) { 
                     ActivityChanged?.Invoke(this, activity);
             }
         }
